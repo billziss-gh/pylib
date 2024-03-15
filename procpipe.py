@@ -1,4 +1,4 @@
-# procpipe.asy
+# procpipe.py
 #
 # Copyright 2024 Bill Zissimopoulos
 #
