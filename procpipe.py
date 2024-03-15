@@ -174,7 +174,7 @@ class P:
         if not suppress_test:
             for i, p in enumerate(pipe):
                 if p.test and 0 != proc[i].returncode:
-                    if result in ("returncode", "tuple"):
+                    if len(pipe) - 1 == i and result in ("returncode", "tuple"):
                         continue
                     raise subprocess.CalledProcessError(proc[i].returncode, proc[i].args)
         ret = proc[-1].returncode
