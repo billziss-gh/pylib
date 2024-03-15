@@ -157,7 +157,10 @@ class P:
                 if isinstance(p.strm[0], bytes):
                     feed = p.strm[0]
                 elif isinstance(p.strm[0], str):
-                    feed = p.strm[0].encode(errors="strict")
+                    if universal_newlines:
+                        feed = p.strm[0].replace("\n", os.linesep).encode(errors="strict")
+                    else:
+                        feed = p.strm[0].encode(errors="strict")
                 if feed is not None:
                     t = threading.Thread(target=feedpipe, args=(proc[-1].stdin, feed))
                     t.daemon = True
@@ -268,6 +271,11 @@ if "__main__" == __name__:
     assert b"hello world" + blinesep == p()
     p = b"world" | ~python + ('import sys; print(f"hello {sys.stdin.read()}"); sys.stdout.flush(); print("stderr", file=sys.stderr)',) | bytes
     assert b"hello world" + blinesep + b"stderr" + blinesep == p()
+
+    p = "\nworld" | python + ('import sys; print(f"hello {sys.stdin.read()}")',) | str
+    assert "hello \nworld\n" == p()
+    p = "\nworld" | python + ('import sys; print(f"hello {sys.stdin.read()}")',) | bytes
+    assert b"hello " + blinesep + b"world" + blinesep == p()
 
     p = python + ('import sys; sys.stdout.write(sys.stdin.read())',)
     assert "hello" == ("hello" | p | str)()
