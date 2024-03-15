@@ -25,7 +25,6 @@
 # SOFTWARE.
 
 import errno
-import shlex
 import subprocess
 import threading
 
@@ -49,11 +48,9 @@ class P:
         if isinstance(that, tuple):
             this.args += that
             return this
-        elif isinstance(that, str):
-            this.args += tuple(shlex.split(that, posix=True))
-            return this
         else:
-            raise TypeError(type(that))
+            this.args += (str(that),)
+            return this
     def __invert__(this):
         this = this.__copy__()
         this.comb = not this.comb
@@ -110,8 +107,12 @@ class P:
         if this.strm[1] is not None:
             res.append(strmrepr(this.strm[1]))
         return " | ".join(res)
-    def __call__(this, *,
-        result="output", suppress_stderr=False, capture_stderr=False, suppress_test=False):
+    def __call__(this, *args,
+        result="output",
+        capture_output=False,
+        suppress_stderr=False,
+        capture_stderr=False,
+        suppress_test=False):
         def feedpipe(f, buf):
             for c in [lambda: f.write(buf) if buf else None, lambda: f.close()]:
                 try:
@@ -131,16 +132,22 @@ class P:
             else:
                 stdin = proc[-1].stdout
             if len(pipe) - 1 != i:
+                pargs = p.args
                 stdout = subprocess.PIPE
             else:
-                stdout = subprocess.PIPE if this.strm[1] in (bytes, str) else this.strm[1]
+                pargs = p.args + args
+                if capture_output:
+                    strm1 = str
+                else:
+                    strm1 = this.strm[1]
+                stdout = subprocess.PIPE if strm1 in (bytes, str) else strm1
             if suppress_stderr:
                 stderr = subprocess.DEVNULL
             elif capture_stderr:
                 stderr = subprocess.STDOUT
             else:
                 stderr = subprocess.STDOUT if p.comb else None
-            proc.append(subprocess.Popen(p.args, stdin=stdin, stdout=stdout, stderr=stderr))
+            proc.append(subprocess.Popen(pargs, stdin=stdin, stdout=stdout, stderr=stderr))
             if 0 == i:
                 feed = None
                 if isinstance(p.strm[0], bytes):
@@ -160,9 +167,11 @@ class P:
         if not suppress_test:
             for i, p in enumerate(pipe):
                 if p.test and 0 != proc[i].returncode:
+                    if result in ("returncode", "tuple"):
+                        continue
                     raise subprocess.CalledProcessError(proc[i].returncode, proc[i].args)
         ret = proc[-1].returncode
-        out = out.decode(errors="replace") if this.strm[1] == str else out
+        out = out.decode(errors="replace") if strm1 == str else out
         if "output" == result:
             return out
         elif "returncode" == result:
@@ -188,7 +197,7 @@ if "__main__" == __name__:
 
     assert "ls -la" == repr(ls + "-la")
     assert "ls -la" == repr(ls + ("-la",))
-    assert "ls -l -a" == repr(ls + "-l -a")
+    assert "ls -l  -a" == repr(ls + "-l  -a")
     assert "ls -l -a" == repr(ls + ("-l", "-a"))
 
     assert "ls | </dev/null>" == repr(ls | None)
@@ -233,9 +242,9 @@ if "__main__" == __name__:
 
     python = P(sys.executable, "-c")
 
-    p = -python + ('import sys; sys.exit(0)',) | str
+    p = python + ('import sys; sys.exit(0)',) | str
     assert 0 == p(result="returncode")
-    p = -python + ('import sys; sys.exit(42)',) | str
+    p = python + ('import sys; sys.exit(42)',) | str
     assert 42 == p(result="returncode")
 
     p = python + ('print("hello")',) | str
@@ -257,6 +266,12 @@ if "__main__" == __name__:
     assert "hello" == ("hello" | p | p | str)()
     assert "hello" == ("hello" | p | p | p | str)()
     assert "hello" == ("hello" | p | p | p | p | str)()
+
+    p = python + ('import sys; sys.stdout.write(sys.stdin.read())',)
+    assert "arg0 arg1 arg2\n" == (python | str)('import sys; print(" ".join(sys.argv[1:]))', "arg0", "arg1", "arg2")
+    assert "hello arg0 arg1 arg2\n" == ("hello" | p | python | str)('import sys; print(sys.stdin.read(), " ".join(sys.argv[1:]))', "arg0", "arg1", "arg2")
+    assert "arg0 arg1 arg2\n" == python('import sys; print(" ".join(sys.argv[1:]))', "arg0", "arg1", "arg2", capture_output=True)
+    assert "hello arg0 arg1 arg2\n" == ("hello" | p | python)('import sys; print(sys.stdin.read(), " ".join(sys.argv[1:]))', "arg0", "arg1", "arg2", capture_output=True)
 
     if "posix" == os.name:
         # see https://stackoverflow.com/a/76402964
