@@ -25,6 +25,7 @@
 # SOFTWARE.
 
 import errno
+import os
 import subprocess
 import threading
 
@@ -109,6 +110,7 @@ class P:
         return " | ".join(res)
     def __call__(this, *args,
         result="output",
+        universal_newlines=None,
         capture_output=False,
         suppress_stderr=False,
         capture_stderr=False,
@@ -124,6 +126,8 @@ class P:
                         pass
                     else:
                         raise
+        if universal_newlines is None:
+            universal_newlines = "nt" == os.name
         pipe = [this] + this.pipe
         proc = []
         for i, p in enumerate(pipe):
@@ -171,7 +175,10 @@ class P:
                         continue
                     raise subprocess.CalledProcessError(proc[i].returncode, proc[i].args)
         ret = proc[-1].returncode
-        out = out.decode(errors="replace") if strm1 == str else out
+        if universal_newlines:
+            out = out.decode(errors="replace").replace(os.linesep, "\n") if strm1 == str else out
+        else:
+            out = out.decode(errors="replace") if strm1 == str else out
         if "output" == result:
             return out
         elif "returncode" == result:
@@ -180,7 +187,7 @@ class P:
             return (ret, out)
 
 if "__main__" == __name__:
-    import os, sys
+    import sys
 
     ls = P("ls")
     grep = P("grep")
@@ -254,12 +261,13 @@ if "__main__" == __name__:
     p = "world" | ~python + ('import sys; print(f"hello {sys.stdin.read()}"); sys.stdout.flush(); print("stderr", file=sys.stderr)',) | str
     assert "hello world\nstderr\n" == p()
 
+    blinesep = os.linesep.encode("utf-8")
     p = python + ('print("hello")',) | bytes
-    assert b"hello\n" == p()
+    assert b"hello" + blinesep == p()
     p = b"world" | python + ('import sys; print(f"hello {sys.stdin.read()}")',) | bytes
-    assert b"hello world\n" == p()
+    assert b"hello world" + blinesep == p()
     p = b"world" | ~python + ('import sys; print(f"hello {sys.stdin.read()}"); sys.stdout.flush(); print("stderr", file=sys.stderr)',) | bytes
-    assert b"hello world\nstderr\n" == p()
+    assert b"hello world" + blinesep + b"stderr" + blinesep == p()
 
     p = python + ('import sys; sys.stdout.write(sys.stdin.read())',)
     assert "hello" == ("hello" | p | str)()
